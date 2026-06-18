@@ -548,6 +548,7 @@ body {
     <div class="tab" onclick="switchTab('nutrition', this)">Nutrition</div>
     <div class="tab" onclick="switchTab('plan', this)">Full Plan</div>
     <div class="tab" onclick="switchTab('progress', this)">Progress</div>
+    <div class="tab" onclick="confirmReset()" style="margin-left:auto;color:var(--muted);font-size:12px">↩ Reset</div>
   </div>
 
   <!-- TODAY -->
@@ -735,6 +736,7 @@ async function startPlan() {
     await generatePlan();
     setupDashboard();
     showScreen('dashboard');
+    saveToStorage(); // Save plan so it loads automatically next visit
   } catch(e) {
     console.error(e);
     showToast('Something went wrong. Please try again.');
@@ -1825,6 +1827,12 @@ function closeModal(e) {
   if (e.target.id === 'ex-modal') closeExModal();
 }
 
+function confirmReset() {
+  if (confirm('Start fresh? This will clear your saved plan and return to the setup screen.')) {
+    clearStorage();
+  }
+}
+
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -1834,6 +1842,90 @@ function showToast(msg) {
 
 // Set today's date as default injection date
 document.getElementById('f-injdate').valueAsDate = new Date();
+
+// ── PERSISTENCE ──
+const STORAGE_KEY = 'recoverstrong_v1';
+
+function saveToStorage() {
+  const toSave = {
+    savedAt: new Date().toISOString(),
+    injDateAtSave: state.injDate,
+    profile: {
+      name: state.name,
+      age: state.age,
+      weight: state.weight,
+      diet: state.diet,
+      loc: state.loc,
+      restDays: state.restDays,
+      injDate: state.injDate,
+    },
+    planText: state.planText,
+    meals: state.meals,
+    activities: state.activities,
+    workouts: state.workouts,
+    milestones: state.milestones,
+  };
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    console.log('Plan saved to device');
+  } catch(e) {
+    console.error('Could not save:', e);
+  }
+}
+
+function loadFromStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved.planText || !saved.profile) return false;
+
+    // Restore state
+    const p = saved.profile;
+    state.name     = p.name;
+    state.age      = p.age;
+    state.weight   = p.weight;
+    state.diet     = p.diet;
+    state.loc      = p.loc;
+    state.restDays = p.restDays || 3;
+    state.injDate  = p.injDate || null;
+    state.planText = saved.planText;
+    state.meals    = saved.meals || [];
+    state.activities = saved.activities || [];
+    state.workouts = saved.workouts || [];
+    state.milestones = saved.milestones || [];
+
+    // Recalculate cycle day from TODAY (not save date)
+    state.cycleDay = state.injDate ? getCycleDay(state.injDate) : 1;
+    state.phase    = getPhase(state.cycleDay, state.restDays);
+
+    // Regenerate today's activities based on current phase
+    parsePlan(state.planText);
+
+    return true;
+  } catch(e) {
+    console.error('Could not load saved plan:', e);
+    return false;
+  }
+}
+
+function clearStorage() {
+  localStorage.removeItem(STORAGE_KEY);
+  showToast('Plan cleared — reloading…');
+  setTimeout(() => location.reload(), 1500);
+}
+
+// Auto-load on page open
+(function initApp() {
+  const loaded = loadFromStorage();
+  if (loaded) {
+    setupDashboard();
+    showScreen('dashboard');
+    // Show a subtle "welcome back" toast
+    setTimeout(() => showToast('Welcome back, ' + state.name + ' 🌿'), 600);
+  }
+  // Otherwise stays on onboard screen
+})();
 </script>
 </body>
 </html>
